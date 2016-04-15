@@ -10,6 +10,7 @@ Many examples in the internet pointed me in the right direction but they all had
 - Linux ping has a limitation to select an interface if the default gateway is not added in the routing table. specially when the subnets overlap for dual wan.
 - Using netfilter alone for load balancing in non stable wan links is very annoying as everyt time ip tables is updated, there is a short delay in accessing internet. so ip tables has to be kept as stable as possible without frequent changes
 - Using policy based routing with multiple gateway is erratic and did not work for me. I had frequent ping response losses due to route cache invalidation.
+- Should handle link failure cases gracefully (kind of failover)
 
 ##### add below lines to /etc/iproute2/rt_tables
 ```
