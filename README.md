@@ -18,8 +18,11 @@ Many examples in the internet pointed me in the right direction but they all had
 ```
 ##### Install
 copy all the files to /opt/scripts
+
 make all of them executable
+
 run "bash wandog install" ; this will symlink wandog to /etc/init.d/wandog
+
 run "udpate-rc.d wandog defaults" to make it run every time you start the system
 
 
