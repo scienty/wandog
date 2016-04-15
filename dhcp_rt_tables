@@ -1,0 +1,79 @@
+#!/bin/sh
+# author: prakash sidaraddi
+#test using dhclient -v wlan0
+#add to /etc/dhcp/dhclient-exit-hooks.d
+#you need to manually add route table entries to /etc/iproute2/rt_table
+
+. /opt/scripts/config.sh
+
+routetable=$(ip addr show $interface | sed -rn 's/(\S*):.*state.*/\1/p')
+routetable=$interface #`expr $routetable + 10`
+routetablenum=$(cat /etc/iproute2/rt_tables | sed -rn "s/(.*)\S*$routetable/\1/p")
+ip_address=${new_ip_address:-$cur_ip_address}
+subnet_mask=${new_subnet_mask:-$cur_subnet_mask}
+network_number=${new_network_number:-$cur_network_number}
+
+#gateway will be set only at bind time
+if [ -n "$new_routers" ]; then
+  gateway=`echo "${new_routers%% *}"`
+else
+  gateway=$(echo $ip_address | cut -d"." -f1-3).1
+fi
+
+set_config ${interface}_gw $gateway
+
+
+post_bind_int() {
+  #setting last octet to 254
+  #new_ip_address=$(echo $ip_address | cut -d"." -f1-3).254
+  #echo "forcing new IP $ip_address for $interface"
+  #ifconfig $interface $ip_address netmask $subnet_mask
+
+
+  #delete and add routing table by interface name
+  # addting rt_table dynamically has issues
+  #sed -i "/$routetable $interface/d" /etc/iproute2/rt_tables
+  #echo $routetable $interface >> /etc/iproute2/rt_tables
+
+  echo "CUR IP: $ip_address"
+  echo "CUR NUM: $network_number"
+  cidrip=$network_number/$(ip addr show $interface | sed -rn '/:.*state UP/{N;N;s/.*inet (\S*)\/(\S*).*/\2/p}')
+  ip route flush table $routetable
+  ip route add table $routetable $cidrip dev $interface  proto kernel  scope link  src $ip_address
+  ip route replace table $routetable default via $gateway dev $interface
+  ip route flush cache table $routetable
+
+  # delete existing rules to avoid duplicates
+  ip rule del iif $interface
+  ip rule del fwmark $routetablenum table $routetable
+  #traffic from wan lookup in main table
+  ip rule add iif $interface goto 32766 prio 1
+  #traffic to wan is based on marking
+  ip rule add fwmark $routetablenum table $routetable prio 10
+  service wandog restart
+}
+
+post_unbind_int() {
+  #sed -i "/$routetable $interface/d" /etc/iproute2/rt_tables
+
+  #ip route delete default table $routetable
+  ip route flush table $routetable
+  #ip route flush cache table $routetable
+  ip rule del iif $interface
+  ip rule del fwmark $routetablenum table $routetable
+  service wandog restart
+}
+
+iswanintf=`echo ${wan_interfaces} | grep "$interface" | wc -l`
+if [ $iswanintf -gt 0 ]
+then
+  case $reason in
+    BOUND|RENEW|REBIND|REBOOT)
+    post_bind_int;
+    ;;
+
+    EXPIRE|FAIL|RELEASE|STOP)
+    post_unbind_int;
+    ;;
+  esac
+fi
