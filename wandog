@@ -1,0 +1,56 @@
+#!/bin/bash -e
+# author: Prakash Sidaraddi
+# service that should go under /etc/init.d/wandog
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:/user/sbin
+. /lib/lsb/init-functions
+
+DAEMON=/opt/scripts/wandogd
+PIDFILE=/var/run/wandogd.pid
+
+case $1 in
+    install)
+         log_daemon_msg "Installing wandog service"
+         echo unlink /etc/init.d/wandog
+         ln -s /opt/scripts/wandog /etc/init.d/wandog
+         update-rc.d wandog defaults
+         ;;
+
+    start)
+         log_daemon_msg "Starting wandog service"
+         start-stop-daemon --start --quiet --oknodo -m --pidfile $PIDFILE --background --startas $DAEMON
+         log_end_msg $status
+         ;;
+
+    stop)
+         log_daemon_msg "Stopping wandog service"
+         start-stop-daemon --stop --quiet --oknodo --pidfile $PIDFILE
+         status=$?
+         rm -f $PIDFILE
+         log_end_msg $status
+         ;;
+
+    restart|force-reload|reload)
+         $0 stop
+         sleep 2
+         $0 start
+         ;;
+
+    try-restart)
+         if $0 status >/dev/null; then
+            $0 restart
+         else
+            exit 0
+         fi
+         ;;
+
+     status)
+         status_of_proc $DAEMON
+         ;;
+
+     *)
+         echo "Usage: $0 {start|stop|restart|try-restart|reload|status}"
+         exit 2
+         ;;
+
+esac
