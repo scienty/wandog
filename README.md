@@ -6,10 +6,10 @@ I had a dockstar and two USB wifi adapters laying around and wanted to make use 
 
 Many examples in the internet pointed me in the right direction but they all had some shortcomings for my purpose. Here are some advantages of this script
 
-1. Ping to a well known internet IP using the wan interface to decide if the internet status on that link. Just pinging the gateway is not sufficient here. I had very poor SNR for some connections where pings packets are lost some times but still be able to access internet.
-2. Linux ping has a limitation to select an interface if the default gateway is not added in the routing table. specially when the subnets overlap for dual wan.
-3. Using netfilter alone for load balancing in non stable wan links is very annoying as everyt time ip tables is updated, there is a short delay in accessing internet. so ip tables has to be kept as stable as possible without frequent changes
-4. Using policy based routing with multiple gateway is erratic and did not work for me. I had frequent ping response losses due to route cache invalidation.
+- Ping to a well known internet IP using the wan interface to decide if the internet status on that link. Just pinging the gateway is not sufficient here. I had very poor SNR for some connections where pings packets are lost some times but still be able to access internet.
+- Linux ping has a limitation to select an interface if the default gateway is not added in the routing table. specially when the subnets overlap for dual wan.
+- Using netfilter alone for load balancing in non stable wan links is very annoying as everyt time ip tables is updated, there is a short delay in accessing internet. so ip tables has to be kept as stable as possible without frequent changes
+- Using policy based routing with multiple gateway is erratic and did not work for me. I had frequent ping response losses due to route cache invalidation.
 
 ##### add below lines to /etc/iproute2/rt_tables
 ```
