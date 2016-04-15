@@ -11,11 +11,12 @@ Many examples in the internet pointed me in the right direction but they all had
 3. Using netfilter alone for load balancing in non stable wan links is very annoying as everyt time ip tables is updated, there is a short delay in accessing internet. so ip tables has to be kept as stable as possible without frequent changes
 4. Using policy based routing with multiple gateway is erratic and did not work for me. I had frequent ping response losses due to route cache invalidation.
 
-## add below lines to /etc/iproute2/rt_tables
+##### add below lines to /etc/iproute2/rt_tables
+```
 10 wlan0
 11 wlan1
-
-## Install
+```
+##### Install
 copy all the files to /opt/scripts
 make all of them executable
 run "bash wandog install" ; this will symlink wandog to /etc/init.d/wandog
