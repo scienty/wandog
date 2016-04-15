@@ -1,0 +1,149 @@
+#!/bin/bash
+# author: Prakash Sidaraddi
+# original author from internet but changed extensively to suite my needsd
+#add this to /etc/rc.local
+
+#LAST_NW_STATUS: Last link status indicates the macro status of the link we determined. This is down initially to force routing change upfront. Don't change these values.
+#LAST_PING_STATUS: Last ping status. Don't change these values.
+#CURR_PING_STATUS: Current ping status. Don't change these values.
+#CURR_NW_STATUS: Change link status indicates that the link needs to be changed. Don't change these values.
+#SUCCESS_CNT: Count of repeated up status or down status. Don't change these values.
+#ROUTING_CHANGE: Routing status change, time to do routing update
+
+# Conventionally 0 indicates success in this script.
+
+# Time between checks in seconds
+SLEEPTIME=2
+
+#IP Address or domain name to ping. The script relies on the domain being
+#pingable and always available
+TESTIP=8.8.8.8
+
+#Ping timeout in seconds
+TIMEOUT=5
+
+# Relative weights of routes. Keep this to a low integer value. I am using 4
+# for TATA connection because it is 4 times faster
+W1=1
+W2=1
+
+#No of repeats of success or failure before changing status of connection
+SUCCESS_THRESHOLD=4
+FAILURE_THRESHOLD=1
+
+# Do not change anything below this line
+ROUTING_CHANGE=0
+COUNTS=()
+
+. /opt/scripts/config.sh
+for EXTIF in $wan_interfaces
+do
+  ROUTENUM=$(cat /etc/iproute2/rt_tables | sed -rn "s/(.*)\S*$EXTIF/\1/p")
+  ROUTENUM_VAR=${EXTIF}_ROUTENUM
+  eval "$ROUTENUM_VAR=$ROUTENUM"
+done
+
+while : ; do
+  WORKING_LINKS=0
+  default_route="ip route replace default scope global"
+
+  idx=0
+  for EXTIF in $wan_interfaces
+  do
+
+    LAST_PING_STATUS_VAR=${EXTIF}_LAST_PING_STATUS && LAST_PING_STATUS=${!LAST_PING_STATUS_VAR:-0}
+    CURR_PING_STATUS_VAR=${EXTIF}_CURR_PING_STATUS && CURR_PING_STATUS=${!CURR_PING_STATUS_VAR:-0}
+    SUCCESS_CNT_VAR=${EXTIF}_SUCCESS_CNT && SUCCESS_CNT=${!SUCCESS_CNT_VAR:-0}
+    FAILURE_CNT_VAR=${EXTIF}_FAILURE_CNT && FAILURE_CNT=${!FAILURE_CNT_VAR:-0}
+    LAST_NW_STATUS_VAR=${EXTIF}_LAST_NW_STATUS && LAST_NW_STATUS=${!LAST_NW_STATUS_VAR:-0}
+    CURR_NW_STATUS_VAR=${EXTIF}_CURR_NW_STATUS && CURR_NW_STATUS=${!CURR_NW_STATUS_VAR:-0}
+
+    #echo "ip addr show $EXTIF | grep -q 'state DOWN'"
+    if ip addr show $EXTIF | grep -q 'state DOWN' 2>&1 > /dev/null; then
+      #echo "$EXTIF link status down"
+      CURR_PING_STATUS=-1
+    else
+      #"add rule for ping test"
+      ip rule del fwmark 792 2>&1 >/dev/null
+      ip rule add fwmark 792 table $EXTIF 2>&1 >/dev/null
+
+      #echo ping -m 792 -W $TIMEOUT -I $EXTIF -c 1 $TESTIP
+      ping -m 792 -W $TIMEOUT -I $EXTIF -c 1 $TESTIP 2>&1 > /dev/null
+      RETVAL=$?
+
+      ip rule del fwmark 792 2>&1 > /dev/null
+
+      if [ $RETVAL -ne 0 ]; then
+        CURR_PING_STATUS=-1
+      else
+        CURR_PING_STATUS=1
+      fi
+    fi
+    COUNTS[idx]="P$CURR_PING_STATUS"
+
+
+    if [ $CURR_PING_STATUS -ne $LAST_PING_STATUS ]; then
+      #only count repeated changes, kind of histyresis
+      LAST_PING_STATUS=$CURR_PING_STATUS
+      CURR_PING_STATUS=0
+    fi
+
+    SUCCESS_CNT=`expr $SUCCESS_CNT + $CURR_PING_STATUS`
+    FAILURE_CNT=`expr $FAILURE_CNT - $CURR_PING_STATUS`
+    if [ $SUCCESS_CNT -gt $SUCCESS_THRESHOLD ]; then SUCCESS_CNT=$SUCCESS_THRESHOLD; fi
+    if [ $FAILURE_CNT -gt $FAILURE_THRESHOLD ]; then FAILURE_CNT=$FAILURE_THRESHOLD; fi
+    if [ $SUCCESS_CNT -lt 0 ]; then SUCCESS_CNT=0; fi
+    if [ $FAILURE_CNT -lt 0 ]; then FAILURE_CNT=0; fi
+
+    if [ $SUCCESS_CNT -ge $SUCCESS_THRESHOLD ]; then
+      CURR_NW_STATUS=1
+    fi
+    if [ $FAILURE_CNT -ge $FAILURE_THRESHOLD ]; then
+      CURR_NW_STATUS=0
+    fi
+
+    if [[ $CURR_NW_STATUS -ne $LAST_NW_STATUS ]]; then
+       #echo "$EXTIF status $CURR_NW_STATUS"
+       LAST_NW_STATUS=$CURR_NW_STATUS
+       SUCCESS_CNT=0
+       FAILURE_CNT=0
+       ROUTING_CHANGE=1
+    fi
+
+    ROUTENUM_VAR=${EXTIF}_ROUTENUM && ROUTENUM=${!ROUTENUM_VAR}
+    if [ $LAST_NW_STATUS -eq 1 ]; then
+      GW=${EXTIF}_gw && GW=${!GW}
+      WORKING_LINKS=`expr $WORKING_LINKS + 1`
+      default_route="$default_route nexthop via $GW dev $EXTIF weight 1"
+      ip rule del fwmark $ROUTENUM table $EXTIF prio 10 2>&1 >> /dev/null
+      ip rule add fwmark $ROUTENUM table $EXTIF prio 10 2>&1 >> /dev/null
+    else
+      ip rule del fwmark $ROUTENUM table $EXTIF prio 10 2>&1 >> /dev/null
+    fi
+
+    #store all variables
+    eval "$LAST_PING_STATUS_VAR=$LAST_PING_STATUS"
+    eval "$CURR_PING_STATUS_VAR=$CURR_PING_STATUS"
+    eval "$SUCCESS_CNT_VAR=$SUCCESS_CNT"
+    eval "$FAILURE_CNT_VAR=$FAILURE_CNT"
+    eval "$LAST_NW_STATUS_VAR=$LAST_NW_STATUS"
+    eval "$CURR_NW_STATUS_VAR=$CURR_NW_STATUS"
+    COUNTS[idx]=F$FAILURE_CNT:S$SUCCESS_CNT:${COUNTS[idx]}
+    idx=`expr $idx + 1`
+  done
+
+  if [ $ROUTING_CHANGE -eq 1 ]; then
+    if [ $WORKING_LINKS -ne 0 ]; then
+      echo $default_route
+      eval $default_route
+    else
+      echo "Internet down"
+      #ip route delete default scope global
+    fi
+    ROUTING_CHANGE=0 #reset routing status change
+  fi
+
+  #for debugging
+  echo ${COUNTS[@]}
+  sleep $SLEEPTIME
+done
